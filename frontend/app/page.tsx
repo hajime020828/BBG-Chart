@@ -1,4 +1,4 @@
-// app/page.tsx
+// frontend/app/page.tsx
 
 import RealTimeChart from './components/RealTimeChart';
 
