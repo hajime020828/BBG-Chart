@@ -36,6 +36,7 @@ export function useWebSocket({
   
   const ws = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+  const messageQueue = useRef<any[]>([]);
 
   const clearReconnectTimeout = useCallback(() => {
     if (reconnectTimeout.current) {
@@ -46,7 +47,6 @@ export function useWebSocket({
 
   const connect = useCallback(() => {
     try {
-      // 既存の接続があれば閉じる
       if (ws.current?.readyState === WebSocket.OPEN) {
         ws.current.close();
       }
@@ -58,6 +58,11 @@ export function useWebSocket({
         setIsConnected(true);
         setConnectionAttempts(0);
         clearReconnectTimeout();
+        
+        // Send any queued messages
+        messageQueue.current.forEach(msg => ws.current?.send(JSON.stringify(msg)));
+        messageQueue.current = [];
+
         onOpen?.();
       };
 
@@ -76,7 +81,6 @@ export function useWebSocket({
         setIsConnected(false);
         onClose?.();
 
-        // 自動再接続
         if (connectionAttempts < maxReconnectAttempts) {
           reconnectTimeout.current = setTimeout(() => {
             setConnectionAttempts(prev => prev + 1);
@@ -90,15 +94,14 @@ export function useWebSocket({
         onError?.(error);
       };
     } catch (error) {
-      console.error('Failed to connect WebSocket:', error);
+        console.error('Failed to connect WebSocket:', error);
       
-      // 接続失敗時の再接続
-      if (connectionAttempts < maxReconnectAttempts) {
-        reconnectTimeout.current = setTimeout(() => {
-          setConnectionAttempts(prev => prev + 1);
-          connect();
-        }, reconnectInterval);
-      }
+        if (connectionAttempts < maxReconnectAttempts) {
+            reconnectTimeout.current = setTimeout(() => {
+                setConnectionAttempts(prev => prev + 1);
+                connect();
+            }, reconnectInterval);
+        }
     }
   }, [url, onMessage, onOpen, onClose, onError, reconnectInterval, maxReconnectAttempts, connectionAttempts, clearReconnectTimeout]);
 
@@ -106,13 +109,14 @@ export function useWebSocket({
     if (ws.current?.readyState === WebSocket.OPEN) {
       ws.current.send(JSON.stringify(message));
     } else {
-      console.warn('WebSocket is not connected');
+      console.warn('WebSocket is not connected, queueing message.');
+      messageQueue.current.push(message);
     }
   }, []);
 
   const disconnect = useCallback(() => {
     clearReconnectTimeout();
-    setConnectionAttempts(maxReconnectAttempts); // 再接続を防ぐ
+    setConnectionAttempts(maxReconnectAttempts);
     ws.current?.close();
   }, [clearReconnectTimeout, maxReconnectAttempts]);
 
