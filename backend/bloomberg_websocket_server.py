@@ -3,13 +3,13 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Set
+from datetime import datetime
+from typing import Set
 import blpapi
 import websockets
 from websockets.server import WebSocketServerProtocol
 
-# ログ設定
+# (変更なし) BloombergDataService クラスの定義 ...
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class BloombergDataService:
             logger.error(f"Error initializing Bloomberg API: {e}")
             return False
     
-    def get_previous_close(self, securities: List[str]) -> Dict[str, float]:
+    def get_previous_close(self, securities: list[str]) -> dict[str, float]:
         """前日終値を取得"""
         prev_close = {}
         
@@ -97,7 +97,7 @@ class BloombergDataService:
             
         return prev_close
     
-    def subscribe_to_securities(self, securities: List[str]):
+    def subscribe_to_securities(self, securities: list[str]):
         """証券のリアルタイムデータをサブスクライブ"""
         try:
             # 前日終値を取得
@@ -186,28 +186,21 @@ class BloombergDataService:
         except Exception as e:
             logger.error(f"Error in event loop: {e}")
 
-# WebSocketサーバー
+
 bloomberg_service = BloombergDataService()
 
-async def handle_websocket(websocket: WebSocketServerProtocol, path: str):
-    """WebSocket接続を処理"""
+async def handle_websocket(websocket: WebSocketServerProtocol, path: str = None):
+    """WebSocket接続を処理し、デフォルト銘柄を購読"""
     bloomberg_service.connected_clients.add(websocket)
     logger.info(f"Client connected. Total clients: {len(bloomberg_service.connected_clients)}")
     
+    # デフォルトの銘柄を自動的に購読
+    default_securities = ["7203 JT Equity"]
+    bloomberg_service.subscribe_to_securities(default_securities)
+
     try:
-        async for message in websocket:
-            data = json.loads(message)
-            
-            # クライアントからのコマンドを処理
-            if data.get("action") == "subscribe":
-                securities = data.get("securities", [])
-                if securities:
-                    bloomberg_service.subscribe_to_securities(securities)
-                    await websocket.send(json.dumps({
-                        "type": "subscription_confirmed",
-                        "securities": securities
-                    }))
-            
+        # 接続を維持し、データ送信を待機
+        await websocket.wait_closed()
     except websockets.exceptions.ConnectionClosed:
         pass
     finally:
@@ -221,20 +214,17 @@ async def run_bloomberg_in_thread():
 
 async def main():
     """メイン実行関数"""
-    # Bloomberg APIを初期化
     if not bloomberg_service.initialize():
         logger.error("Failed to initialize Bloomberg service")
         return
     
-    # WebSocketサーバーを開始
     server = await websockets.serve(handle_websocket, "localhost", 8765)
     logger.info("WebSocket server started on ws://localhost:8765")
     
-    # Bloombergイベントループを実行
     bloomberg_task = asyncio.create_task(run_bloomberg_in_thread())
     
     try:
-        await asyncio.Future()  # 永続的に実行
+        await asyncio.Future()
     except KeyboardInterrupt:
         logger.info("Shutting down...")
     finally:
